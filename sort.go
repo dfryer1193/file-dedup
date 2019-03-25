@@ -96,8 +96,14 @@ func (b byRelease) Less(i, j int) bool {
 					return true
 				}
 			}
-		} else { // rel1 is RC or Snap, rel2 is either Alpha or Beta
-			return false
+		} else { // rel1 is either alpha or beta
+			if len(rel1) == len(rel2) { // Both alpha or beta
+				if strings.ToLower(rel1[2]) == "alpha" {
+					return true
+				}
+			} else { // rel2 is snap or rc
+				return true
+			}
 		}
 	} else if 3 < len(rel2) { // rel1 is Alpha or Beta, rel2 is RC or Snap
 		return true
