@@ -7,11 +7,12 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 )
 
-func buildFileMap(dir string) (map[string]map[string]string, error) {
-	maps := make(map[string]map[string]string)
+func getReleases(dir string) ([]string, error) {
+	var releases []string
 
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
@@ -19,41 +20,77 @@ func buildFileMap(dir string) (map[string]map[string]string, error) {
 	}
 
 	for _, f := range files {
-		matched, _ := regexp.MatchString(`.*\.sums`, f.Name())
+		matched, err := regexp.MatchString(`.*\.sums$`, f.Name())
+		if err != nil {
+			return nil, err
+		}
+
 		if matched {
-			file, err := os.Open(f.Name())
-			if err != nil {
-				return nil, err
-			}
-			defer file.Close()
-
 			release := strings.TrimSuffix(f.Name(), ".sums")
+			releases = append(releases, release)
+		}
+	}
 
-			maps[release] = make(map[string]string)
+	return releases, nil
+}
 
-			scanner := bufio.NewScanner(bufio.NewReader(file))
-			scanner.Split(bufio.ScanLines)
+func buildFileMap(dir string, releases []string) (map[string]map[string]string, error) {
+	maps := make(map[string]map[string]string)
 
-			for scanner.Scan() {
-				splitLine := strings.SplitN(scanner.Text(), " ", 2)
-				if len(splitLine) < 2 {
-					fmt.Printf("Cannot parse line: %s\n", splitLine)
-				} else {
-					path := strings.TrimSpace(splitLine[1])
-					hash := splitLine[0]
-					maps[release][path] = hash
-				}
+	for _, rel := range releases {
+		file, err := os.Open(dir + rel + ".sums")
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		maps[rel] = make(map[string]string)
+
+		scanner := bufio.NewScanner(bufio.NewReader(file))
+		scanner.Split(bufio.ScanLines)
+
+		for scanner.Scan() {
+			splitLine := strings.SplitN(scanner.Text(), " ", 2)
+			if len(splitLine) < 2 {
+				fmt.Printf("Cannot parse line: %s\n", splitLine)
+			} else {
+				path := strings.TrimSpace(splitLine[1])
+				hash := splitLine[0]
+				maps[rel][path] = hash
 			}
 		}
 	}
 	return maps, nil
 }
 
-func getLatest(maps map[string]map[string]string, majVer int) map[string]string {
-	return nil
+func needsDedup(dir string, releases []string, maps map[string]map[string]string) (map[string][]string, error) {
+	dups := make(map[string][]string)
+
+	latestRelease := releases[len(releases)-1]
+	latestMap := maps[latestRelease]
+
+	if latestMap == nil {
+		return nil, fmt.Errorf("map %s does not exist", latestRelease)
+	}
+
+	for rel, relMap := range maps {
+		if rel == latestRelease {
+			continue
+		}
+
+		for path, hash := range latestMap {
+			if relMap[path] == hash {
+				dups[path] = append(dups[path], rel)
+			}
+		}
+	}
+
+	return dups, nil
 }
 
-func dedup(map[string]map[string]string) {
+func dedup(dups map[string][]string) error {
+	// TODO: Implement deduplication
+	return nil
 }
 
 func main() {
@@ -62,7 +99,15 @@ func main() {
 		directory = os.Args[1]
 	}
 
-	maps, err := buildFileMap(directory)
+	releases, err := getReleases(directory)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// TODO: Split by release
+	sort.Sort(byRelease(releases))
+
+	maps, err := buildFileMap(directory, releases)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -70,4 +115,15 @@ func main() {
 	if len(maps) == 0 {
 		fmt.Println("No Map Built!")
 	}
+
+	dups, err := needsDedup(directory, releases, maps)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for path, rels := range dups {
+		fmt.Printf("%s: %v\n", path, rels)
+	}
+
+	dedup(dups)
 }
