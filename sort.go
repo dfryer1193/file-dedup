@@ -52,61 +52,69 @@ func (b byRelease) Less(i, j int) bool {
 	}
 
 	// Both major and minor release are the same
-
-	if rel1[2] == "GA" {
+	if strings.ToUpper(rel1[2]) == "GA" {
 		return false
 	}
 
-	if rel2[2] == "GA" {
+	if strings.ToUpper(rel2[2]) == "GA" {
 		return true
 	}
 
-	if 3 < len(rel1) {
-		if len(rel1) == len(rel2) { // RC, Snap
-			if rel1[2] == "RC" {
-				if rel2[2] == "RC" {
-					rcVer1, err := strconv.Atoi(rel1[4])
-					if err != nil {
-						log.Fatal(err)
-					}
+	// Check for alpha.
+	if strings.ToUpper(rel1[2]) == "ALPHA" {
+		return true
+	}
 
-					rcVer2, err := strconv.Atoi(rel2[4])
-					if err != nil {
-						log.Fatal(err)
-					}
+	if strings.ToUpper(rel2[2]) == "ALPHA" {
+		return false
+	}
 
-					if rcVer1 < rcVer2 {
-						return true
-					}
-				}
-			} else if rel2[2] == "RC" {
-				return true
-			} else { // both Snaps
-				snapVer1, err := strconv.Atoi(rel1[4])
-				if err != nil {
-					log.Fatal(err)
-				}
+	// Check for beta.
+	if strings.ToUpper(rel1[2]) == "BETA" {
+		return true
+	}
 
-				snapVer2, err := strconv.Atoi(rel2[4])
-				if err != nil {
-					log.Fatal(err)
-				}
+	if strings.ToUpper(rel2[2]) == "BETA" {
+		return false
+	}
 
-				if snapVer1 < snapVer2 {
-					return true
-				}
+	// check for RC
+	if strings.ToUpper(rel1[2]) == "RC" {
+		if strings.ToUpper(rel2[2]) == "RC" {
+			ver1, err := strconv.Atoi(rel1[3])
+			if err != nil {
+				log.Fatal(err)
 			}
-		} else { // rel1 is either alpha or beta
-			if len(rel1) == len(rel2) { // Both alpha or beta
-				if strings.ToLower(rel1[2]) == "alpha" {
-					return true
-				}
-			} else { // rel2 is snap or rc
+			ver2, err := strconv.Atoi(rel2[3])
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if ver1 < ver2 {
 				return true
 			}
+		} else {
+			return false
 		}
-	} else if 3 < len(rel2) { // rel1 is Alpha or Beta, rel2 is RC or Snap
-		return true
+	} else {
+		if strings.ToUpper(rel2[2]) == "RC" {
+			return true
+		}
+
+		ver1, err := strconv.Atoi(rel1[3])
+		if err != nil {
+			log.Fatal(err)
+		}
+		ver2, err := strconv.Atoi(rel2[3])
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if ver1 < ver2 {
+			return true
+		}
+
 	}
+
 	return false
 }
