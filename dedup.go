@@ -20,7 +20,8 @@ func getReleases(dir string) ([]string, error) {
 	}
 
 	for _, f := range files {
-		matched, err := regexp.MatchString(`.*\.sums$`, f.Name())
+		r := regexp.MustCompile(`.*\.sums$`)
+		matched := r.MatchString(f.Name())
 		if err != nil {
 			return nil, err
 		}
