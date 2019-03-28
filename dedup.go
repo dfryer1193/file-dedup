@@ -35,16 +35,18 @@ func getReleases(dir string) ([]string, error) {
 }
 
 func buildFileMap(dir string, releases []string) (map[string]map[string]string, error) {
+	var err error
+
 	maps := make(map[string]map[string]string)
 
-	for _, rel := range releases {
-		file, err := os.Open(dir + rel + ".sums")
+	f := func(fname string) (map[string]string, error) {
+		fileHashes := make(map[string]string)
+
+		file, err := os.Open(fname)
 		if err != nil {
 			return nil, err
 		}
 		defer file.Close()
-
-		maps[rel] = make(map[string]string)
 
 		scanner := bufio.NewScanner(bufio.NewReader(file))
 		scanner.Split(bufio.ScanLines)
@@ -56,8 +58,17 @@ func buildFileMap(dir string, releases []string) (map[string]map[string]string, 
 			} else {
 				path := strings.TrimSpace(splitLine[1])
 				hash := splitLine[0]
-				maps[rel][path] = hash
+				fileHashes[path] = hash
 			}
+		}
+
+		return fileHashes, nil
+	}
+
+	for _, rel := range releases {
+		maps[rel], err = f(dir + rel + ".sums")
+		if err != nil {
+			return nil, err
 		}
 	}
 	return maps, nil
