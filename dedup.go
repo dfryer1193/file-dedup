@@ -86,10 +86,6 @@ func needsDedup(dir string, releases []string, maps map[string]map[string]string
 	}
 
 	for rel, relMap := range maps {
-		if rel == latestRelease {
-			continue
-		}
-
 		for path, hash := range latestMap {
 			if relMap[path] == hash {
 				dups[path] = append(dups[path], rel)
@@ -101,7 +97,27 @@ func needsDedup(dir string, releases []string, maps map[string]map[string]string
 }
 
 func dedup(dups map[string][]string) error {
-	// TODO: Implement deduplication
+	for file, rels := range dups {
+		if len(rels) == 1 {
+			continue
+		}
+
+		sort.Sort(byRelease(rels))
+		latestRel := rels[len(rels)-1]
+		for i, rel := range rels {
+			if i == len(rels)-1 {
+				fmt.Printf("Skipping newest release %s...\n", rel)
+				continue
+			}
+
+			fmt.Printf("mv %s/%s{,~}\n"+
+				"ln %s/%s %s/%s\n"+
+				"$? && rm %s/%s~\n\n",
+				rel, file,
+				latestRel, file, rel, file,
+				rel, file)
+		}
+	}
 	return nil
 }
 
@@ -133,9 +149,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	for path, rels := range dups {
-		fmt.Printf("%s: %v\n", path, rels)
-	}
+	//for path, rels := range dups {
+	//	fmt.Printf("%s: %v\n", path, rels)
+	//}
 
 	dedup(dups)
 }
