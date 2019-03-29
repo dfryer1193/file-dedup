@@ -110,12 +110,15 @@ func dedup(dups map[string][]string) error {
 				continue
 			}
 
-			fmt.Printf("mv %s/%s{,~}\n"+
-				"ln %s/%s %s/%s\n"+
-				"$? && rm %s/%s~\n\n",
-				rel, file,
-				latestRel, file, rel, file,
-				rel, file)
+			latestFile := latestRel + "/" + file
+			oldFile := rel + "/" + file
+
+			fmt.Printf("os.Rename(%s, %s~)\n"+
+				"os.Link(%s, %s)\n"+
+				"os.Remove(%s~)\n\n",
+				oldFile, oldFile,
+				latestFile, oldFile,
+				oldFile)
 		}
 	}
 	return nil
