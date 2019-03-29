@@ -40,7 +40,7 @@ func buildFileMap(dir string, releases []string) (map[string]map[string]string, 
 
 	maps := make(map[string]map[string]string)
 
-	f := func(fname string) (map[string]string, error) {
+	consume := func(fname string) (map[string]string, error) {
 		fileHashes := make(map[string]string)
 
 		file, err := os.Open(fname)
@@ -67,7 +67,7 @@ func buildFileMap(dir string, releases []string) (map[string]map[string]string, 
 	}
 
 	for _, rel := range releases {
-		maps[rel], err = f(dir + rel + ".sums")
+		maps[rel], err = consume(dir + rel + ".sums")
 		if err != nil {
 			return nil, err
 		}
