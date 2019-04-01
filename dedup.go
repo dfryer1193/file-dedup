@@ -13,6 +13,7 @@ import (
 
 func getReleases(dir string) ([]string, error) {
 	var releases []string
+	r := regexp.MustCompile(`.*\.sums$`)
 
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
@@ -20,7 +21,6 @@ func getReleases(dir string) ([]string, error) {
 	}
 
 	for _, f := range files {
-		r := regexp.MustCompile(`.*\.sums$`)
 		matched := r.MatchString(f.Name())
 		if err != nil {
 			return nil, err
@@ -75,7 +75,7 @@ func buildFileMap(dir string, releases []string) (map[string]map[string]string, 
 	return maps, nil
 }
 
-func needsDedup(dir string, releases []string, maps map[string]map[string]string) (map[string][]string, error) {
+func needsDedup(releases []string, maps map[string]map[string]string) (map[string][]string, error) {
 	dups := make(map[string][]string)
 
 	latestRelease := releases[len(releases)-1]
@@ -96,29 +96,59 @@ func needsDedup(dir string, releases []string, maps map[string]map[string]string
 	return dups, nil
 }
 
-func dedup(dups map[string][]string) error {
+func dedup(dir string, dups map[string][]string) error {
 	for file, rels := range dups {
-		if len(rels) == 1 {
-			continue
-		}
-
 		sort.Sort(byRelease(rels))
 		latestRel := rels[len(rels)-1]
-		for i, rel := range rels {
-			if i == len(rels)-1 {
-				fmt.Printf("Skipping newest release %s...\n", rel)
+
+		file := strings.TrimPrefix(file, ".")
+
+		for _, rel := range rels {
+
+			if rel == latestRel {
 				continue
 			}
 
-			latestFile := latestRel + "/" + file
-			oldFile := rel + "/" + file
+			latestFilePath := dir + latestRel + file
+			oldFilePath := dir + rel + file
 
-			fmt.Printf("os.Rename(%s, %s~)\n"+
-				"os.Link(%s, %s)\n"+
-				"os.Remove(%s~)\n\n",
-				oldFile, oldFile,
-				latestFile, oldFile,
-				oldFile)
+			latestFInfo, err := os.Stat(latestFilePath)
+			if err != nil {
+				fmt.Printf("Source file %s does not exist!\n", latestFilePath)
+				continue
+			}
+
+			fInfo, err := os.Stat(oldFilePath)
+			if err != nil {
+				fmt.Printf("File %s does not exist!\n", oldFilePath)
+				continue
+			}
+
+			if os.SameFile(latestFInfo, fInfo) {
+				fmt.Printf("Skipping identical file %s\n", fInfo.Name())
+				continue
+			}
+
+			err = os.Rename(oldFilePath, oldFilePath+".bak")
+			if err != nil {
+				fmt.Printf("Could not backup old file %s\n", oldFilePath)
+				continue
+			}
+
+			err = os.Link(latestFilePath, oldFilePath)
+			if err != nil {
+				fmt.Printf("Failed to link file %s to %s\n", latestFilePath, oldFilePath)
+				err2 := os.Rename(oldFilePath+".bak", oldFilePath)
+				if err2 != nil {
+					fmt.Printf("Could not rename file %s.bak to %s\n", oldFilePath, oldFilePath)
+				}
+				continue
+			}
+
+			err = os.Remove(oldFilePath + ".bak")
+			if err != nil {
+				fmt.Printf("Failed to remove backup file %s.bak\n", oldFilePath)
+			}
 		}
 	}
 	return nil
@@ -128,6 +158,10 @@ func main() {
 	directory := "./"
 	if 1 < len(os.Args) {
 		directory = os.Args[1]
+	}
+
+	if !strings.HasSuffix(directory, "/") {
+		directory = directory + "/"
 	}
 
 	releases, err := getReleases(directory)
@@ -147,14 +181,13 @@ func main() {
 		fmt.Println("No Map Built!")
 	}
 
-	dups, err := needsDedup(directory, releases, maps)
+	dups, err := needsDedup(releases, maps)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	//for path, rels := range dups {
-	//	fmt.Printf("%s: %v\n", path, rels)
-	//}
-
-	dedup(dups)
+	err = dedup(directory, dups)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
