@@ -10,7 +10,14 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
+
+type releaseMap struct {
+	release string
+	fileMap map[string]string
+}
 
 func getReleases(dir, rel string) ([]string, error) {
 	var releases []string
@@ -40,64 +47,87 @@ func getReleases(dir, rel string) ([]string, error) {
 	return releases, nil
 }
 
-func buildFileMap(dir string, releases []string) (map[string]map[string]string, error) {
-	var err error
-
-	maps := make(map[string]map[string]string)
-
-	consume := func(fname string) (map[string]string, error) {
-		fileHashes := make(map[string]string)
-
-		file, err := os.Open(fname)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(bufio.NewReader(file))
-		scanner.Split(bufio.ScanLines)
-
-		for scanner.Scan() {
-			splitLine := strings.SplitN(scanner.Text(), " ", 2)
-			if len(splitLine) < 2 {
-				fmt.Printf("Cannot parse line: %s\n", splitLine)
-			} else {
-				path := strings.TrimSpace(splitLine[1])
-				hash := splitLine[0]
-				fileHashes[path] = hash
-			}
-		}
-
-		return fileHashes, nil
+func consumeRelease(dir, rel string, ret chan<- *releaseMap, wg *sync.WaitGroup) {
+	defer wg.Done()
+	relmap := releaseMap{
+		release: rel,
+		fileMap: make(map[string]string),
 	}
+	fname := dir + rel + ".sums"
 
-	for _, rel := range releases {
-		maps[rel], err = consume(dir + rel + ".sums")
-		if err != nil {
-			return nil, err
+	file, err := os.Open(fname)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(bufio.NewReader(file))
+	scanner.Split(bufio.ScanLines)
+
+	for scanner.Scan() {
+		splitLine := strings.SplitN(scanner.Text(), " ", 2)
+		if len(splitLine) < 2 {
+			fmt.Printf("Cannot parse line: %s\n", splitLine)
+		} else {
+			path := strings.TrimSpace(splitLine[1])
+			hash := splitLine[0]
+			relmap.fileMap[path] = hash
 		}
 	}
-	return maps, nil
+	ret <- &relmap
 }
 
-func needsDedup(releases []string, maps map[string]map[string]string) (map[string][]string, error) {
+func buildReleaseMap(dir string, releases []string) map[string]releaseMap {
+	const maxChanDepth = 5
+
+	var mapChan chan *releaseMap
+	var wg sync.WaitGroup
+
+	if len(releases) < maxChanDepth {
+		mapChan = make(chan *releaseMap, len(releases))
+	} else {
+		mapChan = make(chan *releaseMap, maxChanDepth)
+	}
+
+	relMaps := make(map[string]releaseMap)
+
+	for _, rel := range releases {
+		go consumeRelease(dir, rel, mapChan, &wg)
+		wg.Add(1)
+	}
+
+	for i := len(releases); i > 0; i-- {
+		select {
+		case relMap := <-mapChan:
+			relMaps[relMap.release] = *relMap
+		case <-time.After(30 * time.Second):
+			log.Fatal(fmt.Errorf("Waiting for map longer than %d seconds", 30))
+		}
+	}
+
+	wg.Wait()
+	close(mapChan)
+
+	return relMaps
+}
+
+func needsDedup(releases []string, releaseMaps map[string]releaseMap) (map[string][]string, error) {
 	dups := make(map[string][]string)
 
 	latestRelease := releases[len(releases)-1]
-	latestMap := maps[latestRelease]
+	latestMap := releaseMaps[latestRelease]
 
-	if latestMap == nil {
+	if latestMap.fileMap == nil {
 		return nil, fmt.Errorf("map %s does not exist", latestRelease)
 	}
 
-	for rel, relMap := range maps {
-		for path, hash := range latestMap {
-			if relMap[path] == hash {
+	for rel, relMap := range releaseMaps {
+		for path, hash := range latestMap.fileMap {
+			if relMap.fileMap[path] == hash {
 				dups[path] = append(dups[path], rel)
 			}
 		}
 	}
-
 	return dups, nil
 }
 
@@ -183,19 +213,13 @@ func main() {
 	// TODO: Split by release
 	sort.Sort(byRelease(releases))
 
-	maps, err := buildFileMap(directory, releases)
-	if err != nil {
-		log.Fatal(err)
-	}
+	releaseMaps := buildReleaseMap(directory, releases)
 
-	if len(maps) == 0 {
+	if len(releaseMaps) == 0 {
 		fmt.Println("No Map Built!")
 	}
 
-	dups, err := needsDedup(releases, maps)
-	if err != nil {
-		log.Fatal(err)
-	}
+	dups, err := needsDedup(releases, releaseMaps)
 
 	err = dedup(directory, dups)
 	if err != nil {
