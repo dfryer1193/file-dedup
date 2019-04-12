@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -11,9 +12,13 @@ import (
 	"strings"
 )
 
-func getReleases(dir string) ([]string, error) {
+func getReleases(dir, rel string) ([]string, error) {
 	var releases []string
 	r := regexp.MustCompile(`.*\.sums$`)
+
+	if rel != "0" {
+		r = regexp.MustCompile(rel + `.*\.sums$`)
+	}
 
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
@@ -155,18 +160,24 @@ func dedup(dir string, dups map[string][]string) error {
 }
 
 func main() {
-	directory := "./"
-	if 1 < len(os.Args) {
-		directory = os.Args[1]
-	}
+	var release, directory string
+
+	flag.StringVar(&release, "rel", "0", "The release to dedup. 0 for all releases.")
+	flag.StringVar(&directory, "dir", "./", "The directory containing releases to dedup.")
+	flag.Parse()
 
 	if !strings.HasSuffix(directory, "/") {
 		directory = directory + "/"
 	}
 
-	releases, err := getReleases(directory)
+	releases, err := getReleases(directory, release)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if len(releases) < 2 {
+		fmt.Printf("Not enough releases to dedup! Exiting...\n")
+		os.Exit(0)
 	}
 
 	// TODO: Split by release
