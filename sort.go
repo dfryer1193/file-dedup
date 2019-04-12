@@ -51,41 +51,52 @@ func (b byRelease) Less(i, j int) bool {
 		return false
 	}
 
+	relStgIdx1 := 2
+	relStgIdx2 := 2
+
+	if len(rel1[2]) < 2 { // Not 2 minor versions
+		relStgIdx1 = 3
+	}
+
+	if len(rel2[2]) < 2 { // Not 2 minor versions
+		relStgIdx2 = 3
+	}
+
 	// Both major and minor release are the same
-	if strings.ToUpper(rel1[2]) == "GA" {
+	if strings.ToUpper(rel1[relStgIdx1]) == "GA" {
 		return false
 	}
 
-	if strings.ToUpper(rel2[2]) == "GA" {
+	if strings.ToUpper(rel2[relStgIdx2]) == "GA" {
 		return true
 	}
 
 	// Check for alpha.
-	if strings.ToUpper(rel1[2]) == "ALPHA" {
+	if strings.ToUpper(rel1[relStgIdx1]) == "ALPHA" {
 		return true
 	}
 
-	if strings.ToUpper(rel2[2]) == "ALPHA" {
+	if strings.ToUpper(rel2[relStgIdx2]) == "ALPHA" {
 		return false
 	}
 
 	// Check for beta.
-	if strings.ToUpper(rel1[2]) == "BETA" {
+	if strings.ToUpper(rel1[relStgIdx1]) == "BETA" {
 		return true
 	}
 
-	if strings.ToUpper(rel2[2]) == "BETA" {
+	if strings.ToUpper(rel2[relStgIdx2]) == "BETA" {
 		return false
 	}
 
 	// check for RC
-	if strings.ToUpper(rel1[2]) == "RC" {
-		if strings.ToUpper(rel2[2]) == "RC" {
-			ver1, err := strconv.Atoi(rel1[3])
+	if strings.ToUpper(rel1[relStgIdx1]) == "RC" {
+		if strings.ToUpper(rel2[relStgIdx2]) == "RC" {
+			ver1, err := strconv.Atoi(rel1[relStgIdx1+1])
 			if err != nil {
 				log.Fatal(err)
 			}
-			ver2, err := strconv.Atoi(rel2[3])
+			ver2, err := strconv.Atoi(rel2[relStgIdx2+1])
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -97,15 +108,15 @@ func (b byRelease) Less(i, j int) bool {
 			return false
 		}
 	} else {
-		if strings.ToUpper(rel2[2]) == "RC" {
+		if strings.ToUpper(rel2[relStgIdx2]) == "RC" {
 			return true
 		}
 
-		ver1, err := strconv.Atoi(rel1[3])
+		ver1, err := strconv.Atoi(rel1[relStgIdx1+1])
 		if err != nil {
 			log.Fatal(err)
 		}
-		ver2, err := strconv.Atoi(rel2[3])
+		ver2, err := strconv.Atoi(rel2[relStgIdx2+1])
 		if err != nil {
 			log.Fatal(err)
 		}
