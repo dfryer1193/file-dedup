@@ -46,7 +46,7 @@ func needsDedup(releases []string, releaseMaps map[string]releaseMap) (map[strin
 	return dups, nil
 }
 
-func dedup(dir string, dups map[string][]string) error {
+func dedup(dir string, silent bool, dups map[string][]string) error {
 	for file, rels := range dups {
 		sort.Sort(byRelease(rels))
 		latestRel := rels[len(rels)-1]
@@ -61,6 +61,10 @@ func dedup(dir string, dups map[string][]string) error {
 
 			latestFilePath := dir + latestRel + file
 			oldFilePath := dir + rel + file
+
+			if !silent {
+				fmt.Printf("Deduplicating %s\n", oldFilePath)
+			}
 
 			latestFInfo, err := os.Stat(latestFilePath)
 			if err != nil {
@@ -107,13 +111,14 @@ func dedup(dir string, dups map[string][]string) error {
 func main() {
 	var release, directory string
 	var jobs int
-	var useSums, silent bool
+	var useSums, silent, dryRun bool
 
 	flag.StringVar(&release, "rel", "0", "The release to dedup. 0 for all releases.")
 	flag.StringVar(&directory, "dir", "./", "The directory containing releases to dedup.")
 	flag.IntVar(&jobs, "j", runtime.NumCPU(), "Maximum number of jobs.")
 	flag.BoolVar(&useSums, "sums", false, "Use premade *.sums files")
 	flag.BoolVar(&silent, "s", false, "Run silently")
+	flag.BoolVar(&dryRun, "d", false, "Do not perform deduplication.")
 	flag.Parse()
 
 	if !strings.HasSuffix(directory, "/") {
@@ -138,10 +143,12 @@ func main() {
 		fmt.Println("No Map Built!")
 	}
 
-	dups, err := needsDedup(releases, releaseMaps)
+	if !dryRun {
+		dups, err := needsDedup(releases, releaseMaps)
 
-	err = dedup(directory, dups)
-	if err != nil {
-		log.Fatal(err)
+		err = dedup(directory, silent, dups)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 }
