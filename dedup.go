@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -191,9 +192,11 @@ func dedup(dir string, dups map[string][]string) error {
 
 func main() {
 	var release, directory string
+	var jobs int
 
 	flag.StringVar(&release, "rel", "0", "The release to dedup. 0 for all releases.")
 	flag.StringVar(&directory, "dir", "./", "The directory containing releases to dedup.")
+	flag.IntVar(&jobs, "j", runtime.NumCPU(), "Maximum number of jobs.")
 	flag.Parse()
 
 	if !strings.HasSuffix(directory, "/") {
