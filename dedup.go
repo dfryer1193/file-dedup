@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-var releaseRegex = `\.[0-9]+-(GA|RC-[0-9]+|Snap.*-[0-9]+|Beta|Alpha)`
+var releaseRegex = `\.[0-9]+-(GA|RC-[0-9]+|Snap.*-[0-9]+|Beta|Alpha)$`
 var sumsRegex = `.*\.sums$`
 
 type releaseMap struct {
