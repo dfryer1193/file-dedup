@@ -13,12 +13,7 @@ import (
 var releaseRegex = `\.[0-9]+-(GA|RC-[0-9]+|Snap.*-[0-9]+|Beta|Alpha)$`
 var sumsRegex = `.*\.sums$`
 
-type releaseMap struct {
-	release string
-	fileMap map[string]string
-}
-
-func buildReleaseMap(dir string, useSums, silent bool, jobs int, releases []string) map[string]releaseMap {
+func buildReleaseMap(dir string, useSums, silent bool, jobs int, releases []string) map[string]map[string]string {
 	if useSums {
 		return buildSumsMap(dir, silent, jobs, releases)
 	}
@@ -26,19 +21,19 @@ func buildReleaseMap(dir string, useSums, silent bool, jobs int, releases []stri
 	return buildHashMap(dir, silent, jobs, releases)
 }
 
-func needsDedup(releases []string, releaseMaps map[string]releaseMap) (map[string][]string, error) {
+func needsDedup(releases []string, releaseMaps map[string]map[string]string) (map[string][]string, error) {
 	dups := make(map[string][]string)
 
 	latestRelease := releases[len(releases)-1]
 	latestMap := releaseMaps[latestRelease]
 
-	if latestMap.fileMap == nil {
+	if latestMap == nil {
 		return nil, fmt.Errorf("map %s does not exist", latestRelease)
 	}
 
 	for rel, relMap := range releaseMaps {
-		for path, hash := range latestMap.fileMap {
-			if relMap.fileMap[path] == hash {
+		for path, hash := range latestMap {
+			if relMap[path] == hash {
 				dups[path] = append(dups[path], rel)
 			}
 		}

@@ -8,8 +8,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"sync"
-	"time"
 )
 
 func getReleases(dir, rel string, useSums, silent bool) ([]string, error) {
@@ -53,73 +51,40 @@ func getReleases(dir, rel string, useSums, silent bool) ([]string, error) {
 	return releases, nil
 }
 
-func consumeSums(dir string, wq <-chan string, silent bool, ret chan<- *releaseMap, wg *sync.WaitGroup) {
-	defer wg.Done()
-	for rel := range wq {
-		relmap := releaseMap{
-			release: rel,
-			fileMap: make(map[string]string),
-		}
-		fname := dir + rel + ".sums"
+func consumeSums(sumsFile string, silent bool) map[string]string {
+	relmap := make(map[string]string)
 
-		file, err := os.Open(fname)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer file.Close()
+	file, err := os.Open(sumsFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
 
-		scanner := bufio.NewScanner(bufio.NewReader(file))
-		scanner.Split(bufio.ScanLines)
+	scanner := bufio.NewScanner(bufio.NewReader(file))
+	scanner.Split(bufio.ScanLines)
 
-		for scanner.Scan() {
-			splitLine := strings.SplitN(scanner.Text(), " ", 2)
-			if len(splitLine) < 2 {
-				fmt.Printf("Cannot parse line: %s\n", splitLine)
-			} else {
-				path := strings.TrimSpace(splitLine[1])
-				hash := splitLine[0]
-				relmap.fileMap[path] = hash
-				if !silent {
-					fmt.Printf("Mapped %s\n", path)
-				}
+	for scanner.Scan() {
+		splitLine := strings.SplitN(scanner.Text(), " ", 2)
+		if len(splitLine) < 2 {
+			fmt.Printf("Cannot parse line: %s\n", splitLine)
+		} else {
+			path := strings.TrimSpace(splitLine[1])
+			hash := splitLine[0]
+			relmap[path] = hash
+			if !silent {
+				fmt.Printf("Mapped %s\n", path)
 			}
 		}
-		ret <- &relmap
 	}
+	return relmap
 }
 
-func buildSumsMap(dir string, silent bool, jobs int, releases []string) map[string]releaseMap {
-	var wg sync.WaitGroup
-
-	relChan := make(chan string, jobs+1)
-	mapChan := make(chan *releaseMap, jobs+1)
-
-	relMaps := make(map[string]releaseMap)
-
-	go func(releases []string, ret chan<- string) {
-		for _, rel := range releases {
-			ret <- rel
-		}
-
-		close(relChan)
-	}(releases, relChan)
-
-	for workers := 1; workers < jobs; workers++ {
-		wg.Add(1)
-		go consumeSums(dir, relChan, silent, mapChan, &wg)
+func buildSumsMap(dir string, silent bool, jobs int, releases []string) map[string]map[string]string {
+	relMaps := make(map[string]map[string]string)
+	for _, rel := range releases {
+		fname := dir + rel + ".sums"
+		relMaps[rel] = make(map[string]string)
+		relMaps[rel] = consumeSums(fname, silent)
 	}
-
-	for i := len(releases); i > 0; i-- {
-		select {
-		case relMap := <-mapChan:
-			relMaps[relMap.release] = *relMap
-		case <-time.After(30 * time.Second):
-			log.Fatal(fmt.Errorf("Waiting for map longer than %d seconds", 30))
-		}
-	}
-
-	wg.Wait()
-	close(mapChan)
-
 	return relMaps
 }

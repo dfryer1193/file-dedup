@@ -15,16 +15,12 @@ import (
 
 var mux sync.Mutex
 
-func buildHashMap(dir string, silent bool, jobs int, releases []string) map[string]releaseMap {
-	relMaps := make(map[string]releaseMap)
+func buildHashMap(dir string, silent bool, jobs int, releases []string) map[string]map[string]string {
+	relMaps := make(map[string]map[string]string)
 
 	for _, rel := range releases {
-		relmap := releaseMap{
-			release: rel,
-			fileMap: make(map[string]string),
-		}
-		relmap.fileMap = hashRelease(dir, rel, silent, jobs)
-
+		relmap := make(map[string]string)
+		relmap = hashRelease(dir, rel, silent, jobs)
 		relMaps[rel] = relmap
 	}
 
