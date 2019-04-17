@@ -36,7 +36,8 @@ func hashRelease(dir, release string, silent bool, jobs int) map[string]string {
 	wq := make(chan string, jobs+1)
 	hashedRelease := make(map[string]string)
 
-	go getFiles(dir+release+"/", wq)
+	wg.Add(1)
+	go getFiles(dir+release+"/", wq, &wg)
 
 	for workers := 1; workers < jobs; workers++ {
 		wg.Add(1)
@@ -48,7 +49,13 @@ func hashRelease(dir, release string, silent bool, jobs int) map[string]string {
 	return hashedRelease
 }
 
-func getFiles(dir string, wq chan<- string) {
+func getFiles(dir string, wq chan<- string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	searchFiles(dir, wq)
+	close(wq)
+}
+
+func searchFiles(dir string, wq chan<- string) {
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
 		log.Fatal(err)
@@ -56,13 +63,11 @@ func getFiles(dir string, wq chan<- string) {
 
 	for _, file := range files {
 		if file.IsDir() {
-			getFiles(dir+file.Name()+"/", wq)
+			searchFiles(dir+file.Name()+"/", wq)
 		} else {
 			wq <- (dir + file.Name())
 		}
 	}
-
-	close(wq)
 }
 
 func hashFile(dir, release string, hashMap map[string]string, silent bool, wq <-chan string, wg *sync.WaitGroup) {
