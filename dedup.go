@@ -138,9 +138,9 @@ func main() {
 		fmt.Println("No Map Built!")
 	}
 
-	if !dryRun {
-		dups, err := needsDedup(releases, releaseMaps)
+	dups, err := needsDedup(releases, releaseMaps)
 
+	if !dryRun {
 		err = dedup(directory, silent, dups)
 		if err != nil {
 			log.Fatal(err)
