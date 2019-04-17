@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"hash"
 	"io"
 	"io/ioutil"
 	"log"
@@ -69,9 +68,8 @@ func searchFiles(dir string, wq chan<- string) {
 func hashFile(dir, release string, hashMap map[string]string, silent bool, wq <-chan string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	h := sha256.New()
-
-	getSum := func(path string, h hash.Hash) string {
+	getSum := func(path string) string {
+		h := sha256.New()
 		f, err := os.Open(path)
 		if err != nil {
 			log.Fatal(err)
@@ -87,8 +85,8 @@ func hashFile(dir, release string, hashMap map[string]string, silent bool, wq <-
 		if !silent {
 			fmt.Printf("Hashing %s\n", fpath)
 		}
-		sum := getSum(fpath, h)
-		fpath = strings.TrimPrefix(fpath, dir+release+"/")
+		sum := getSum(fpath)
+		fpath = "./" + strings.TrimPrefix(fpath, dir+release+"/")
 
 		mux.Lock()
 		hashMap[fpath] = sum
