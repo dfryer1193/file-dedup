@@ -19,13 +19,13 @@ func getReleases(dir, rel string, useSums, silent bool) ([]string, error) {
 	}
 
 	if rel != "0" {
-		regexStr = rel + regexStr
-	} else {
 		if rel == "8" {
-			regexStr = `8\.[0-9]*`
+			regexStr = `^8\.[0-9]*`
 		} else {
-			regexStr = `[0-9]+` + regexStr
+			regexStr = `^` + rel + regexStr
 		}
+	} else {
+		regexStr = `^[0-9]+` + regexStr
 	}
 
 	r := regexp.MustCompile(regexStr)
