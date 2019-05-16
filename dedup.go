@@ -1,117 +1,192 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"os"
+	"regexp"
 	"runtime"
-	"sort"
+	"strconv"
 	"strings"
+	"sync"
 )
 
+type hashStore struct {
+	mux     sync.Mutex
+	fileMap map[string]string
+}
+
 var releaseRegex = `\.[0-9]+-(GA|RC-[0-9]+|Snap.*-[0-9]+|Beta|Alpha)$`
-var sumsRegex = `.*\.sums$`
 
-func buildReleaseMap(dir string, useSums, silent bool, jobs int, releases []string) map[string]map[string]string {
-	if useSums {
-		return buildSumsMap(dir, silent, jobs, releases)
+func getReleases(dir string, rel int) ([]string, error) {
+	var releases []string
+	var regexStr string
+
+	if rel != 0 {
+		if rel == 8 {
+			regexStr = `^8\.[0-9]*` + releaseRegex
+		} else {
+			regexStr = `^` + strconv.Itoa(rel) + releaseRegex
+		}
+	} else {
+		regexStr = `^[0-9]+` + regexStr
 	}
 
-	return buildHashMap(dir, silent, jobs, releases)
-}
+	r := regexp.MustCompile(regexStr)
 
-func needsDedup(releases []string, releaseMaps map[string]map[string]string) (map[string][]string, error) {
-	dups := make(map[string][]string)
-
-	latestRelease := releases[len(releases)-1]
-	latestMap := releaseMaps[latestRelease]
-
-	if latestMap == nil {
-		return nil, fmt.Errorf("map %s does not exist", latestRelease)
+	files, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return nil, err
 	}
 
-	for rel, relMap := range releaseMaps {
-		for path, hash := range latestMap {
-			if relMap[path] == hash {
-				dups[path] = append(dups[path], rel)
-			}
+	for _, f := range files {
+		matched := r.MatchString(f.Name())
+
+		if matched {
+			release := f.Name()
+			releases = append(releases, release)
 		}
 	}
-	return dups, nil
+
+	return releases, nil
 }
 
-func dedup(dir string, silent bool, dups map[string][]string) error {
-	for file, rels := range dups {
-		sort.Sort(byRelease(rels))
-		latestRel := rels[len(rels)-1]
+func getFiles(dir string, releases []string, ret chan<- string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for _, rel := range releases {
+		searchFiles(dir+rel+"/", ret)
+	}
+	close(ret)
+}
 
-		file := strings.TrimPrefix(file, ".")
+func searchFiles(dir string, ret chan<- string) {
+	files, err := ioutil.ReadDir(dir)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		for _, rel := range rels {
-
-			if rel == latestRel {
-				continue
-			}
-
-			latestFilePath := dir + latestRel + file
-			oldFilePath := dir + rel + file
-
-			if !silent {
-				fmt.Printf("Deduplicating %s\n", oldFilePath)
-			}
-
-			latestFInfo, err := os.Stat(latestFilePath)
-			if err != nil {
-				fmt.Printf("Source file %s does not exist!\n", latestFilePath)
-				continue
-			}
-
-			fInfo, err := os.Stat(oldFilePath)
-			if err != nil {
-				fmt.Printf("File %s does not exist!\n", oldFilePath)
-				continue
-			}
-
-			if os.SameFile(latestFInfo, fInfo) {
-				fmt.Printf("Skipping identical file %s\n", fInfo.Name())
-				continue
-			}
-
-			err = os.Rename(oldFilePath, oldFilePath+".bak")
-			if err != nil {
-				fmt.Printf("Could not backup old file %s\n", oldFilePath)
-				continue
-			}
-
-			err = os.Link(latestFilePath, oldFilePath)
-			if err != nil {
-				fmt.Printf("Failed to link file %s to %s\n", latestFilePath, oldFilePath)
-				err2 := os.Rename(oldFilePath+".bak", oldFilePath)
-				if err2 != nil {
-					fmt.Printf("Could not rename file %s.bak to %s\n", oldFilePath, oldFilePath)
-				}
-				continue
-			}
-
-			err = os.Remove(oldFilePath + ".bak")
-			if err != nil {
-				fmt.Printf("Failed to remove backup file %s.bak\n", oldFilePath)
-			}
+	for _, file := range files {
+		if file.IsDir() {
+			searchFiles(dir+file.Name()+"/", ret)
+		} else {
+			ret <- (dir + file.Name())
 		}
 	}
-	return nil
+}
+
+func dedup(base, dup string, silent, dryRun bool) {
+	baseInfo, err := os.Stat(base)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	dupInfo, err := os.Stat(dup)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if os.SameFile(baseInfo, dupInfo) {
+		if silent {
+			return
+		}
+		fmt.Printf("Skipping identical file %s\n", dupInfo.Name())
+	}
+
+	err = os.Rename(dup, dup+".bak")
+	if err != nil {
+		fmt.Printf("Could not rename %s, skipping...\n", dup)
+		return
+	}
+
+	err = os.Link(base, dup)
+	if err != nil {
+		fmt.Printf("Failed to link file %s to %s\n", base, dup)
+		err2 := os.Rename(dup+".bak", dup)
+		if err2 != nil {
+			fmt.Printf("Could not restore %s!\n", dup)
+		}
+		return
+	}
+
+	err = os.Remove(dup + ".bak")
+	if err != nil {
+		fmt.Printf("Failed to remove backup files %s.bak\n", dup)
+	}
+
+	return
+}
+
+func consumeFile(silent, dryRun bool, files *hashStore, wq <-chan string, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	getSum := func(path string) string {
+		h := sha256.New()
+		f, err := os.Open(path)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer f.Close()
+
+		io.Copy(h, f)
+
+		return hex.EncodeToString(h.Sum(nil))
+	}
+
+	for fpath := range wq {
+		if !silent {
+			fmt.Printf("Hashing %s\n", fpath)
+		}
+		sum := getSum(fpath)
+
+		files.mux.Lock()
+		fname := files.fileMap[sum]
+		files.mux.Unlock()
+
+		if fname == "" {
+			files.mux.Lock()
+			files.fileMap[sum] = fpath
+			files.mux.Unlock()
+		} else {
+			dedup(fname, fpath, silent, dryRun)
+		}
+	}
+}
+
+func dedupDir(dir string, rel, jobs int, silent, dryRun bool) {
+	var wg sync.WaitGroup
+	files := new(hashStore)
+	wq := make(chan string, jobs+1)
+	files.fileMap = make(map[string]string)
+
+	releases, err := getReleases(dir, rel)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	wg.Add(1)
+	go getFiles(dir, releases, wq, &wg)
+
+	for workers := 1; workers < jobs; workers++ {
+		wg.Add(1)
+		go consumeFile(silent, dryRun, files, wq, &wg)
+	}
+
+	wg.Wait()
 }
 
 func main() {
-	var release, directory string
-	var jobs int
-	var useSums, silent, dryRun bool
+	var directory string
+	var release, jobs int
+	var silent, dryRun bool
 
-	flag.StringVar(&release, "rel", "0", "The release to dedup. 0 for all releases.")
 	flag.StringVar(&directory, "dir", "./", "The directory containing releases to dedup.")
+	flag.IntVar(&release, "rel", 0, "The release to dedup. 0 for all releases.")
 	flag.IntVar(&jobs, "j", runtime.NumCPU(), "Maximum number of jobs.")
-	flag.BoolVar(&useSums, "sums", false, "Use premade *.sums files")
 	flag.BoolVar(&silent, "s", false, "Run silently")
 	flag.BoolVar(&dryRun, "d", false, "Do not perform deduplication.")
 	flag.Parse()
@@ -120,30 +195,5 @@ func main() {
 		directory = directory + "/"
 	}
 
-	releases, err := getReleases(directory, release, useSums, silent)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if len(releases) < 2 {
-		fmt.Printf("Not enough releases to dedup! Exiting...\n")
-		os.Exit(0)
-	}
-
-	sort.Sort(byRelease(releases))
-
-	releaseMaps := buildReleaseMap(directory, useSums, silent, jobs, releases)
-
-	if len(releaseMaps) == 0 {
-		fmt.Println("No Map Built!")
-	}
-
-	dups, err := needsDedup(releases, releaseMaps)
-
-	if !dryRun {
-		err = dedup(directory, silent, dups)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
+	dedupDir(directory, release, jobs, silent, dryRun)
 }
