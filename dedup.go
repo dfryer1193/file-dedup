@@ -95,7 +95,10 @@ func dedup(base, dup string, silent, dryRun bool) {
 			return
 		}
 		fmt.Printf("Skipping identical file %s\n", dupInfo.Name())
+		return
 	}
+
+	fmt.Printf("Deduplicating %s...\n", dupInfo.Name())
 
 	err = os.Rename(dup, dup+".bak")
 	if err != nil {
