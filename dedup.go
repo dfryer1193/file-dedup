@@ -17,7 +17,7 @@ import (
 )
 
 type hashStore struct {
-	mux     sync.Mutex
+	mux     sync.RWMutex
 	fileMap map[string]string
 }
 
@@ -143,9 +143,9 @@ func consumeFile(silent, dryRun bool, files *hashStore, wq <-chan string, wg *sy
 		}
 		sum := getSum(fpath)
 
-		files.mux.Lock()
+		files.mux.RLock()
 		fname := files.fileMap[sum]
-		files.mux.Unlock()
+		files.mux.RUnlock()
 
 		if fname == "" {
 			files.mux.Lock()
