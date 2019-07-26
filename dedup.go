@@ -21,18 +21,14 @@ type hashStore struct {
 	fileMap map[string]string
 }
 
-var releaseRegex = `\.[0-9]+-(GA|RC-[0-9]+|Snap.*-[0-9]+|Beta|Alpha)$`
+var releaseRegex = `(\.[0-9])+-(GA|RC|(Internal)?Snapshot|Beta|Alpha)(-[0-9](\.[0-9])*)?$`
 
 func getReleases(dir string, rel int) ([]string, error) {
 	var releases []string
 	var regexStr string
 
 	if rel != 0 {
-		if rel == 8 {
-			regexStr = `^8\.[0-9]*` + releaseRegex
-		} else {
-			regexStr = `^` + strconv.Itoa(rel) + releaseRegex
-		}
+		regexStr = `^` + strconv.Itoa(rel) + releaseRegex
 	} else {
 		regexStr = `^[0-9]+` + regexStr
 	}
