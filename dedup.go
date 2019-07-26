@@ -96,6 +96,11 @@ func dedup(base, dup string, silent, dryRun bool) {
 
 	fmt.Printf("Deduplicating %s...\n", dupInfo.Name())
 
+	if dryRun {
+		fmt.Printf("Dry run, not touching %s...\n", dupInfo.Name())
+		return
+	}
+
 	err = os.Rename(dup, dup+".bak")
 	if err != nil {
 		fmt.Printf("Could not rename %s, skipping...\n", dup)
